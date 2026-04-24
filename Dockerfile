@@ -10,5 +10,6 @@ RUN mvn clean package -DskipTests
 FROM eclipse-temurin:17-jdk-alpine AS runtime
 WORKDIR /app
 COPY --from=build /app/target/spring-petclinic-*.jar /app/app.jar
+EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
 
