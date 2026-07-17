@@ -1,0 +1,25 @@
+[Unit]
+Description=Spring Petclinic
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+User=root
+Group=root
+
+WorkingDirectory=/opt/petclinic
+
+ExecStart=/usr/bin/java \
+-Dspring.config.additional-location=file:/opt/petclinic/application-mysql.properties \
+-jar /opt/petclinic/spring-petclinic-3.3.0-SNAPSHOT.jar
+
+SuccessExitStatus=143
+
+Restart=always
+RestartSec=10
+
+
+[Install]
+WantedBy=multi-user.target
