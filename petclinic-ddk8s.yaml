@@ -1,0 +1,166 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: petclinic
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: petclinic-config
+  namespace: petclinic
+data:
+  application.properties: |
+    spring.profiles.active=default
+    database=mysql
+    spring.sql.init.schema-locations=classpath*:db/${database}/schema.sql
+    spring.sql.init.data-locations=classpath*:db/${database}/data.sql
+    spring.sql.init.mode=ALWAYS
+    spring.datasource.url=${MYSQL_URL}
+    spring.datasource.username=${MYSQL_USER}
+    spring.datasource.password=${MYSQL_PASSWORD}
+    spring.thymeleaf.mode=HTML
+    spring.jpa.hibernate.ddl-auto=update
+    spring.jpa.open-in-view=true
+    spring.messages.basename=messages/messages
+    management.endpoints.web.exposure.include=*
+    logging.level.org.springframework=INFO
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: petclinic-secret
+  namespace: petclinic
+type: Opaque
+stringData:
+  # CHANGED: Points to local service inside cluster and drops Azure SSL flags
+  MYSQL_URL: jdbc:mysql://mysql-service:3306/petclinic?useSSL=false&allowPublicKeyRetrieval=true
+  MYSQL_USER: petclinicuser
+  MYSQL_PASSWORD: 'Oil@2026!#'
+---
+# ADDED: Local MySQL Instance for Docker Desktop
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-db
+  namespace: petclinic
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-db
+  template:
+    metadata:
+      labels:
+        app: mysql-db
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: 'Oil@2026!#'
+        - name: MYSQL_DATABASE
+          value: petclinic
+        - name: MYSQL_USER
+          value: petclinicuser
+        - name: MYSQL_PASSWORD
+          value: 'Oil@2026!#'
+        ports:
+        - containerPort: 3306
+---
+# ADDED: Service to network MySQL internally
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+  namespace: petclinic
+spec:
+  selector:
+    app: mysql-db
+  ports:
+  - port: 3306
+    targetPort: 3306
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: petclinic
+  namespace: petclinic
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: petclinic
+  template:
+    metadata:
+      labels:
+        app: petclinic
+    spec:
+      # COMMENTED OUT: Not needed for local Docker build
+      # imagePullSecrets:
+      # - name: acr-secret
+      containers:
+      - name: petclinic
+        # CHANGED: Point to your local built image name
+        image: petclinic-app:latest 
+        imagePullPolicy: IfNotPresent # CHANGED from Always to fetch local image
+        ports:
+        - containerPort: 8080
+        env:
+        - name: MYSQL_URL
+          valueFrom:
+            secretKeyRef:
+              name: petclinic-secret  
+              key: MYSQL_URL    
+        - name: MYSQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: petclinic-secret
+              key: MYSQL_USER
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: petclinic-secret
+              key: MYSQL_PASSWORD
+        volumeMounts:
+        - name: config-volume
+          mountPath: /config/application.properties
+          subPath: application.properties
+        resources:
+          requests:
+            memory: "512Mi"  
+            cpu: "250m"   
+          limits:
+            memory: "1Gi"  
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 5
+      volumes:
+      - name: config-volume
+        configMap:
+          name: petclinic-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: petclinic-service
+  namespace: petclinic
+spec:
+  type: LoadBalancer
+  selector:
+    app: petclinic
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8080
+    #nodePort: 30001 # <-- Explicitly set a port between 30000-32767
